@@ -8,9 +8,16 @@ from typing import Dict, Any
 
 # Ensure you have set your OPENAI_API_KEY environment variable
 if 'OPENAI_API_KEY' not in os.environ:
-    print("❌ FATAL: OPENAI_API_KEY environment variable not set.")
-    print("Please set it in your terminal: export OPENAI_API_KEY='sk-...'")
-    sys.exit(1)
+    print("No OPENAI_API_KEY found.")
+    api_key = input("Please enter your OpenAI API key (sk-...): ").strip()
+
+    if not api_key:
+        print("❌ FATAL: Invalid API key.")
+        sys.exit(1)
+
+    # Temporarily set for this session
+    os.environ['OPENAI_API_KEY'] = api_key
+    print("API key set successfully for this run.")
 
 
 def run_test_scenario(scenario_name: str, query: str) -> Dict[str, Any]:
