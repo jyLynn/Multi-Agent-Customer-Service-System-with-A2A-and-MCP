@@ -43,10 +43,6 @@ def run_test_scenario(scenario_name: str, query: str) -> Dict[str, Any]:
 
 # --- 2. Test Scenarios (Aligned with database_setup.py) ---
 
-# Based on database_setup.py:
-# ID 1: John Doe (Active)
-# ID 3: Bob Johnson (Disabled)
-# ID 7: Edward Norton (Active) - Let's use him for billing issues
 
 test_scenarios = {
     # Scenario 1: Simple Query
@@ -56,10 +52,6 @@ test_scenarios = {
     # Scenario 2: Coordinated Query (Context + Advice)
     # Flow: Router -> Data Agent (fetch info) -> Router -> Support Agent (give advice based on 'disabled' status)
     "Coordinated_Query": "I am customer ID 3. Why can't I login?",
-
-    # Scenario 3: Escalation (Urgency Detection)
-    # Flow: Router (detects 'charged twice') -> Support Agent (Escalation response)
-    # "Escalation_Urgent": "I've been charged twice for my subscription! Refund me immediately! (ID 7)",
 
     # Scenario 3: Complex Query
     # Flow: Router -> Data Agent (fetch info) -> Router -> Support Agent (Escalation response)

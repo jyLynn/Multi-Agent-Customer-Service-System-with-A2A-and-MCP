@@ -58,7 +58,6 @@ def call_router(state: AgentState) -> Dict[str, Any]:
     elif "COMPLETE" in clean_output:
         next_action = "COMPLETE"
     else:
-        # 默认交给 Support，尽量不卡住
         next_action = "SUPPORT_AGENT"
 
     log_entry = f"Router Decision: {next_action} (Raw: {router_output})"
@@ -101,9 +100,6 @@ def call_data_agent(state: AgentState) -> Dict[str, Any]:
 
     print(f"[A2A LOG] 🔧 Tool Selected: {tool_name} with args: {tool_args}")
 
-    # --- 泛化的复杂场景：list_customers + get_customer_history（带 ticket 的需求） ---
-    # 如果 LLM 选择 list_customers 且 query 提到 tickets，
-    # 我们自动帮它组合出 “客户 + 工单汇总” 的结果。
     if support_request and "PROFILE" in support_request.upper():
         if tool_name != "get_customer" and "customer_id" in tool_args and "get_customer" in tools_map:
             print("[A2A LOG] 🔁 Override: support_request asks for PROFILE, "
@@ -142,7 +138,6 @@ def call_data_agent(state: AgentState) -> Dict[str, Any]:
                         }
                     )
             else:
-                # 否则就做一个泛化的 ticket summary
                 summary.append(
                     {
                         "customer_id": cid,
@@ -167,7 +162,6 @@ def call_data_agent(state: AgentState) -> Dict[str, Any]:
             "intermediate_steps": ["Executed list_customers + get_customer_history (composed)"],
         }
 
-    # --- 一般情况：执行单个 MCP 工具 ---
     if tool_name in tools_map:
         try:
             selected_tool = tools_map[tool_name]
@@ -196,7 +190,6 @@ def call_support_agent(state: AgentState) -> Dict[str, Any]:
     context = state.get("customer_context", {})
     raw_output = support_agent.invoke(state["query"], context).strip()
 
-    # 协商模式：Support 要数据
     if raw_output.startswith("ROUTING_REQUEST:"):
         request_code = raw_output.split(":", 1)[1].strip()
         print(f"[A2A LOG] 🔁 Support requested more data: {request_code}")
@@ -210,7 +203,6 @@ def call_support_agent(state: AgentState) -> Dict[str, Any]:
             "intermediate_steps": [f"Support requested data: {request_code}"],
         }
 
-    # 正常模式：Support 给最终回答
     final_response = raw_output
     print("[A2A LOG] 🗣️ Final Response Generated.")
 
@@ -268,10 +260,8 @@ def build_workflow():
         },
     )
 
-    # Data Agent -> Router（总是回 Router 看下一步）
     workflow.add_edge("data_agent", "router")
 
-    # Support Agent -> Router 或 End（取决于是 ROUTING_REQUEST 还是最终回答）
     workflow.add_conditional_edges(
         "support_agent",
         support_route_decision,

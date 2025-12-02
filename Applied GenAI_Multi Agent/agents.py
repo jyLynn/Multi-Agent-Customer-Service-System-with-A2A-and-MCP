@@ -8,7 +8,6 @@ from langchain_core.output_parsers import StrOutputParser
 if "OPENAI_API_KEY" not in os.environ:
     raise EnvironmentError("OPENAI_API_KEY environment variable not set.")
 
-# LLM：支持 tool-calling 即可
 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 
 
@@ -40,7 +39,6 @@ class BaseAgent:
         return self.runnable.invoke(input_data)
 
 
-# --- RouterAgent: 更泛化的路由逻辑 ---
 
 class RouterAgent(BaseAgent):
     def __init__(self):
@@ -91,7 +89,6 @@ class RouterAgent(BaseAgent):
         )
 
 
-# --- CustomerDataAgent: 泛化的 MCP 工具使用策略 ---
 
 class CustomerDataAgent(BaseAgent):
     def __init__(self, mcp_tools: List[Any]):
@@ -127,7 +124,6 @@ class CustomerDataAgent(BaseAgent):
         super().__init__("Customer Data Agent", system_message, tools=mcp_tools)
 
 
-# --- SupportAgent: “能回答就回答，不能就要 data” ---
 
 class SupportAgent(BaseAgent):
     def __init__(self):
