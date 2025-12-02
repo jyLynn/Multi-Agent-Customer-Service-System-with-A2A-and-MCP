@@ -90,7 +90,6 @@ def update_customer(customer_id: int, email: str = None, phone: str = None, name
         cursor = conn.cursor()
         cursor.execute(sql, tuple(values))
         conn.commit()
-        # 返回 True 表示更新成功
         return cursor.rowcount > 0
     except Exception as e:
         print(f"Error updating customer {customer_id}: {e}")

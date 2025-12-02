@@ -5,7 +5,7 @@ from langgraph.graph import StateGraph, END
 from langchain_core.messages import AIMessage
 
 from agents import RouterAgent, CustomerDataAgent, SupportAgent
-from mcp_server import MCP_TOOLS, list_customers, get_customer_history  # MCP 工具入口
+from mcp_server import MCP_TOOLS, list_customers, get_customer_history
 
 
 # --- 1. Shared State ---
@@ -32,7 +32,6 @@ tools_map = {tool.__name__: tool for tool in MCP_TOOLS}
 def call_router(state: AgentState) -> Dict[str, Any]:
     print("\n[A2A LOG] ➡️ Router Agent analyzing...")
 
-    # 如果已经有 final_response，就结束，避免 loop
     if state.get("final_response"):
         return {"next_action": "COMPLETE"}
 

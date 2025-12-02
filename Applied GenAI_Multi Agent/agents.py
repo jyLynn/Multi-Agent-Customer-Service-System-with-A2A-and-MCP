@@ -29,10 +29,8 @@ class BaseAgent:
         )
 
         if self.tools:
-            # 有 MCP 工具的 Agent（Data Agent）
             self.runnable = prompt | llm.bind_tools(self.tools)
         else:
-            # 纯对话 Agent（Router / Support）
             self.runnable = prompt | llm | StrOutputParser()
 
     def invoke(self, input_data: Dict[str, Any]):
