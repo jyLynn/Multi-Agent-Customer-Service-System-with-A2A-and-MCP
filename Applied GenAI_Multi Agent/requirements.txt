@@ -1,4 +1,26 @@
-langchain
-langchain-openai
-langgraph
+# --- Google ADK (A2A framework) ---
+google-adk==1.9.0
+
+# --- A2A Client SDK ---
+a2a-sdk==0.3.0
+
+# --- Gemini 2.5 Flash / Google API ---
+google-generativeai
+
+# --- HTTP Client ---
+httpx
+
+# --- ASGI Server for A2A agents ---
+uvicorn
+starlette
+
+# --- Flask MCP server ---
+Flask
+flask-cors
+
+# --- Utilities ---
+termcolor
+
+# --- Required for ADK internal dependencies ---
 pydantic
+typing_extensions

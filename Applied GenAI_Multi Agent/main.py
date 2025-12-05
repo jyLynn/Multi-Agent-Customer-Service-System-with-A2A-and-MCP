@@ -1,129 +1,136 @@
-import os
-import json
-import sys
-from langgraph_flow import build_workflow
+# main.py
+import asyncio
 from typing import Dict, Any
 
-# --- 1. Environment Setup ---
+import httpx
+from termcolor import colored
+from a2a.client import ClientConfig, ClientFactory, create_text_message_object
+from a2a.types import (
+    AgentCard,
+    TransportProtocol,
+)
+from a2a.utils.constants import AGENT_CARD_WELL_KNOWN_PATH
 
-# Ensure you have set your OPENAI_API_KEY environment variable
-if 'OPENAI_API_KEY' not in os.environ:
-    print("No OPENAI_API_KEY found.")
-    api_key = input("Please enter your OpenAI API key (sk-...): ").strip()
-
-    if not api_key:
-        print("❌ FATAL: Invalid API key.")
-        sys.exit(1)
-
-    # Temporarily set for this session
-    os.environ['OPENAI_API_KEY'] = api_key
-    print("API key set successfully for this run.")
+ROUTER_AGENT_URL = "http://127.0.0.1:10032"
 
 
-def run_test_scenario(scenario_name: str, query: str) -> Dict[str, Any]:
-    """Runs a single query through the multi-agent system."""
-    print(f"\n🚀 Running Scenario: {scenario_name}")
-    print(f"❓ Query: {query}")
-    print("-" * 60)
+class A2ASimpleClient:
+    """A2A Simple to call A2A servers."""
 
-    # Initialize the workflow
-    app = build_workflow()
+    def __init__(self, default_timeout: float = 240.0):
+        self._agent_info_cache: dict[str, dict[str, Any] | None] = {}
+        self.default_timeout = default_timeout
 
-    # Initial state
-    initial_state = {
-        "query": query,
-        "customer_context": {},
-        "intermediate_steps": [],
-        "next_action": "START",
-        "final_response": ""
-    }
+    async def create_task(self, agent_url: str, message: str) -> str:
+        """Send a message to an A2A agent and return a safe text response."""
+        timeout_config = httpx.Timeout(
+            timeout=self.default_timeout,
+            connect=10.0,
+            read=self.default_timeout,
+            write=10.0,
+            pool=5.0,
+        )
 
-    # Execute the graph
-    # recursion_limit=15 allows for complex router loops (Router <-> Data Agent)
+        async with httpx.AsyncClient(timeout=timeout_config) as httpx_client:
+            # Fetch or reuse agent card
+            if agent_url in self._agent_info_cache and self._agent_info_cache[agent_url] is not None:
+                agent_card_data = self._agent_info_cache[agent_url]
+            else:
+                agent_card_response = await httpx_client.get(
+                    f"{agent_url}{AGENT_CARD_WELL_KNOWN_PATH}"
+                )
+                agent_card_data = agent_card_response.json()
+                self._agent_info_cache[agent_url] = agent_card_data
+
+            agent_card = AgentCard(**agent_card_data)
+
+            config = ClientConfig(
+                httpx_client=httpx_client,
+                supported_transports=[
+                    TransportProtocol.jsonrpc,
+                    TransportProtocol.http_json,
+                ],
+                use_client_preference=True,
+            )
+
+            factory = ClientFactory(config)
+            client = factory.create(agent_card)
+
+            message_obj = create_text_message_object(content=message)
+
+            responses = []
+            async for response in client.send_message(message_obj):
+                responses.append(response)
+
+            if not responses:
+                return "No response received (empty responses list)."
+
+            first = responses[0]
+            if not (isinstance(first, tuple) and len(first) > 0):
+                return f"Unexpected response shape: {first}"
+
+            task = first[0]
+
+            # 1) If the task has an error, raise it immediately.
+            if getattr(task, "error", None) is not None:
+                return f"Task error from agent: {task.error}"
+
+            # 2) Happy path: Try to retrieve text from artifacts.
+            try:
+                artifacts = getattr(task, "artifacts", None)
+                if artifacts and len(artifacts) > 0:
+                    parts = getattr(artifacts[0], "parts", None)
+                    if parts and len(parts) > 0:
+                        root = getattr(parts[0], "root", None)
+                        text = getattr(root, "text", None)
+                        if text:
+                            return text
+            except Exception:
+                # Ignore exceptions and proceed to fallback.
+                pass
+
+            # 3) Fallback: Retrieve text from the last message in task.history.
+            history = getattr(task, "history", []) or []
+            if history:
+                last_msg = history[-1]
+                parts = getattr(last_msg, "parts", None)
+                if parts and len(parts) > 0:
+                    root = getattr(parts[0], "root", None)
+                    text = getattr(root, "text", None)
+                    if text:
+                        return text
+
+            # 4) If all else fails, dump the entire task.
+            return f"Task completed but no text found.\nRaw task: {task!r}"
+
+
+a2a_client = A2ASimpleClient()
+
+
+async def ask_router(query: str):
+    print(colored("\n" + "=" * 80, "magenta"))
+    print(colored("👤 USER: ", "cyan", attrs=["bold"]) + query)
+    print(colored("=" * 80, "magenta"))
+
     try:
-        final_state = app.invoke(initial_state, {"recursion_limit": 15})
-        return final_state
+        response = await a2a_client.create_task(ROUTER_AGENT_URL, query)
+        print(colored("🤖 ROUTER AGENT (final answer):", "green", attrs=["bold"]))
+        print(response)
+        print()
+        return response
     except Exception as e:
-        print(f"❌ Error during execution: {e}")
-        return initial_state
+        print(colored(f"❌ Error calling Router Agent: {e}", "red"))
+        return None
 
 
-# --- 2. Test Scenarios (Aligned with database_setup.py) ---
+async def run_assignment_scenarios():
+    # Testing
+    await ask_router("Get customer information for ID 5")
+    # await ask_router("I'm customer 1 and need help upgrading my account")
+    # await ask_router("Show me all active customers who have open tickets")
+    await ask_router("My ID is 5. I've been charged twice, please refund immediately!")
+    await ask_router("Update my email to new@email.com and show my ticket history. My customer ID is 1.")
 
 
-test_scenarios = {
-    # Scenario 1: Simple Query
-    # Flow: Router -> Data Agent -> Router -> Support Agent
-    "Simple_Query": "Get customer information for ID 5",
-
-    # Scenario 2: Coordinated Query (Context + Advice)
-    # Flow: Router -> Data Agent (fetch info) -> Router -> Support Agent (give advice based on 'disabled' status)
-    "Coordinated_Query": "I am customer ID 3. Why can't I login?",
-
-    # Scenario 3: Complex Query
-    # Flow: Router -> Data Agent (fetch info) -> Router -> Support Agent (Escalation response)
-    "Complex_Query": "Show me all active customers who have open tickets",
-
-    # Scenario 4: Multi-Intent / Complex
-    # Flow: Router -> Data Agent (Update) -> Router -> Support (Confirm)
-    # Note: Requires the Data Agent to correctly pick the 'update_customer' tool
-    "Multi_Intent_Update": "Update the email for customer ID 1 to 'john.new@email.com'.",
-}
-
-# --- 3. Execution Loop ---
-
-results = {}
-print("=" * 80)
-print("🤖 MULTI-AGENT CUSTOMER SERVICE SYSTEM - TEST SUITE")
-print("=" * 80)
-
-for name, query in test_scenarios.items():
-    results[name] = run_test_scenario(name, query)
-
-# --- 4. Final Report Generation (Deliverable Format) ---
-
-print("\n\n" + "#" * 80)
-print("## 📊 Final Test Report & A2A Logs")
-print("#" * 80)
-
-for name, result in results.items():
-    query_text = test_scenarios[name]
-    print(f"\n### 🧪 Scenario: {name}")
-    print(f"**Query:** \"{query_text}\"")
-    print("\n**1. 🤝 Agent-to-Agent (A2A) Communication Log:**")
-
-    # Filter and print only clear A2A logs
-    steps = result.get('intermediate_steps', [])
-    if not steps:
-        print("  (No steps recorded - execution might have failed)")
-
-    for step in steps:
-        # Only print our formatted logs from langgraph_flow.py
-        if isinstance(step, str):
-            clean_step = step.replace("[A2A LOG]", "").strip()
-            print(f"  - {clean_step}")
-
-    # Final Response
-    print("\n**2. 💬 Final Response to Customer:**")
-    response = result.get('final_response', "No response generated.")
-    print(f"> {response}")
-
-    # Data Context (Proof of MCP usage)
-    print("\n**3. 💾 Final Data Context (MCP Artifacts):**")
-    context = result.get('customer_context', {})
-    print(f"```json\n{json.dumps(context, indent=2)}\n```")
-    print("---")
-
-# --- Conclusion (Example for Deliverable 3) ---
-
-print("\n\n" + "#" * 80)
-print("## Conclusion and Learning")
-print("#" * 80)
-
-print("""
-**Learning Summary:**
-Implementing the multi-agent system with LangGraph (Option B) provided a clear, state-machine approach for A2A coordination. The AgentState TypedDict served as the shared state/message-passing structure, allowing agents to read and write information (e.g., the Data Agent writes to `customer_context`, and the Support Agent reads it). The Router Agent effectively implemented the task allocation and negotiation by using conditional edges (`route_decision`), enabling multi-step flows like: Router -> Data Agent -> Router (to check if more steps are needed) -> Support Agent.
-
-**Challenges:**
-The main challenge was ensuring the Router Agent's output was consistently parsable (`DATA_AGENT: ...`). A minor challenge was integrating the **MCP tools**, which required careful definition using LangChain's `bind_tools` and the `ToolExecutor` to correctly invoke the Python functions defined in `mcp_server.py`. The use of LLMs for routing decisions, while flexible, required robust prompt engineering to prevent agents from getting stuck in a loop or deviating from the prescribed A2A protocol.
-""")
+if __name__ == "__main__":
+    asyncio.run(run_assignment_scenarios())
